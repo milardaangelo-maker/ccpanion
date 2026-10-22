@@ -22,7 +22,7 @@ class OverlayService : Service() {
     private val h = Handler(Looper.getMainLooper())
     private var pct = 0
 
-    override fun onBind(i: IBinder?): IBinder? = null
+    override fun onBind(i: Intent?): IBinder? = null
 
     override fun onStartCommand(i: Intent?, f: Int, s: Int): Int {
         if (view != null) return START_NOT_STICKY
