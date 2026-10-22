@@ -3,6 +3,7 @@
 package com.kai.ccpanion
 
 import android.app.Service
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Handler

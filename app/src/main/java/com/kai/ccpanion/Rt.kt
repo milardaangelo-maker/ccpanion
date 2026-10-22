@@ -82,30 +82,36 @@ object Rt {
 
     fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
-    fun get(path: String): String? = try {
-        val t = token() ?: return null
-        val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
-        c.requestMethod = "GET"
-        c.connectTimeout = 8000; c.readTimeout = 12000
-        val code = c.responseCode
-        val body = if (code == 200) c.inputStream.bufferedReader().readText() else null
-        c.disconnect()
-        body
-    } catch (e: Exception){ null }
+    fun get(path: String): String? = tryGet(path)
+
+    private fun tryGet(path: String): String? {
+        try {
+            val t = token() ?: return null
+            val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
+            c.requestMethod = "GET"
+            c.connectTimeout = 8000; c.readTimeout = 12000
+            val code = c.responseCode
+            val body = if (code == 200) c.inputStream.bufferedReader().readText() else null
+            c.disconnect()
+            return body
+        } catch (e: Exception){ return null }
+    }
 
     fun put(path: String, payload: JSONObject): Boolean = write(path, payload, "PUT")
     fun postDb(path: String, payload: JSONObject): Boolean = write(path, payload, "POST")
 
-    private fun write(path: String, payload: JSONObject, method: String): Boolean = try {
-        val t = token() ?: return false
-        val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
-        c.requestMethod = method
-        c.doOutput = true
-        c.connectTimeout = 8000; c.readTimeout = 12000
-        c.setRequestProperty("Content-Type", "application/json")
-        c.outputStream.use { it.write(payload.toString().toByteArray()) }
-        val code = c.responseCode
-        c.disconnect()
-        code == 200
-    } catch (e: Exception){ false }
+    private fun write(path: String, payload: JSONObject, method: String): Boolean {
+        try {
+            val t = token() ?: return false
+            val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
+            c.requestMethod = method
+            c.doOutput = true
+            c.connectTimeout = 8000; c.readTimeout = 12000
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write(payload.toString().toByteArray()) }
+            val code = c.responseCode
+            c.disconnect()
+            return code == 200
+        } catch (e: Exception){ return false }
+    }
 }
