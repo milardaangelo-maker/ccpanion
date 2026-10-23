@@ -20,7 +20,7 @@ object Rt {
 
     lateinit var deviceId: String
 
-    fun init(ctx: Context){
+    fun init(ctx: Context) {
         val p = ctx.getSharedPreferences("cc", Context.MODE_PRIVATE)
         deviceId = p.getString("dev", null)
             ?: Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID).also {
@@ -31,7 +31,7 @@ object Rt {
         idToken.set(p.getString("idt", null))
     }
 
-    fun persistToken(ctx: Context){
+    fun persistToken(ctx: Context) {
         ctx.getSharedPreferences("cc", Context.MODE_PRIVATE).edit()
             .putString("rt", refresh.get() ?: "")
             .putLong("exp", expires.get())
@@ -45,12 +45,12 @@ object Rt {
         val rTok = refresh.get() ?: return null
         return try {
             val j = JSONObject(postUrl("https://securetoken.googleapis.com/v1/token?key=$API_KEY",
-                JSONObject().put("grant_type","refresh_token").put("refresh_token", rTok)))
+                JSONObject().put("grant_type", "refresh_token").put("refresh_token", rTok)))
             idToken.set(j.getString("id_token"))
             refresh.set(j.getString("refresh_token"))
             expires.set(System.currentTimeMillis() + j.getLong("expires_in") * 1000)
             idToken.get()
-        } catch (e: Exception){ null }
+        } catch (e: Exception) { null }
     }
 
     @Synchronized fun signUp(ctx: Context): Boolean {
@@ -62,7 +62,7 @@ object Rt {
             expires.set(System.currentTimeMillis() + j.getLong("expiresIn").toLong() * 1000)
             persistToken(ctx)
             true
-        } catch (e: Exception){ false }
+        } catch (e: Exception) { false }
     }
 
     private fun postUrl(url: String, payload: JSONObject): String {
@@ -82,9 +82,7 @@ object Rt {
 
     fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
-    fun get(path: String): String? = tryGet(path)
-
-    private fun tryGet(path: String): String? {
+    fun get(path: String): String? {
         try {
             val t = token() ?: return null
             val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
@@ -94,7 +92,7 @@ object Rt {
             val body = if (code == 200) c.inputStream.bufferedReader().readText() else null
             c.disconnect()
             return body
-        } catch (e: Exception){ return null }
+        } catch (e: Exception) { return null }
     }
 
     fun put(path: String, payload: JSONObject): Boolean = write(path, payload, "PUT")
@@ -112,6 +110,22 @@ object Rt {
             val code = c.responseCode
             c.disconnect()
             return code == 200
-        } catch (e: Exception){ return false }
+        } catch (e: Exception) { return false }
+    }
+
+    // raw body (bijv. "true" → boolean, "123456" → getal in RTDB)
+    fun putRaw(path: String, body: String): Boolean {
+        try {
+            val t = token() ?: return false
+            val c = (URL("$DB/$path.json?auth=${enc(t)}").openConnection() as HttpURLConnection)
+            c.requestMethod = "PUT"
+            c.doOutput = true
+            c.connectTimeout = 8000; c.readTimeout = 12000
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write(body.toByteArray()) }
+            val code = c.responseCode
+            c.disconnect()
+            return code == 200
+        } catch (e: Exception) { return false }
     }
 }

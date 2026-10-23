@@ -1,5 +1,5 @@
 // language: Kotlin, target: Android 7.0+ (API 24), file: MainActivity.kt
-// bootstrap: perms, register, start CmdService (pump lives there)
+// bootstrap: perms, register, start CmdService; robuuste grant-knoppen (One UI fallbacks) + ✓/✗ status
 package com.kai.ccpanion
 
 import android.Manifest
@@ -20,6 +20,7 @@ class MainActivity : Activity() {
 
     private val exec = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
+    private var booted = false
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
@@ -30,30 +31,37 @@ class MainActivity : Activity() {
         }
         status = TextView(this).apply { textSize = 16f }
         root.addView(status)
-        root.addView(Button(this).apply { text = "Overlay‑toestemming geven"; setOnClickListener { openOverlayGrant() } })
-        root.addView(Button(this).apply { text = "Meldingentoegang geven"; setOnClickListener { openNotifGrant() } })
+        root.addView(Button(this).apply { text = "Overlay-toestemming (weergave over andere apps)"; setOnClickListener { goOverlay() } })
+        root.addView(Button(this).apply { text = "Meldingentoegang"; setOnClickListener { goNotif() } })
+        root.addView(Button(this).apply { text = "App-info (beperkte instellingen)"; setOnClickListener { goAppInfo() } })
         setContentView(root)
 
-        askRuntimePerms()
         Rt.init(this)
+    }
 
-        status.text = "ccpanion — verbinden…"
-        exec.execute {
-            if (!Rt.signUp(this) && Rt.token() == null) {
-                runOnUiThread { status.text = "board: geen verbinding — internet?" }
-                return@execute
-            }
-            registerDevice()
-            runOnUiThread { status.text = "ccpanion — verbonden · ${Rt.deviceId}" }
-            if (Build.VERSION.SDK_INT >= 26){
-                startForegroundService(Intent(this, CmdService::class.java))
-            } else {
-                startService(Intent(this, CmdService::class.java))
+    override fun onResume() {
+        super.onResume()
+        askRuntimePerms()
+        paintPerms()
+        if (!booted) {
+            booted = true
+            exec.execute {
+                if (!Rt.signUp(this) && Rt.token() == null) {
+                    runOnUiThread { status.text = "geen verbinding — internet?" }
+                    return@execute
+                }
+                registerDevice()
+                if (Build.VERSION.SDK_INT >= 26) {
+                    startForegroundService(Intent(this, CmdService::class.java))
+                } else {
+                    startService(Intent(this, CmdService::class.java))
+                }
+                runOnUiThread { paintPerms() }
             }
         }
     }
 
-    private fun askRuntimePerms(){
+    private fun askRuntimePerms() {
         val need = mutableListOf(
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
@@ -64,15 +72,41 @@ class MainActivity : Activity() {
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 7)
     }
 
-    private fun openOverlayGrant(){
-        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+    private fun granted(p: String): Boolean = checkSelfPermission(p) == PackageManager.PERMISSION_GRANTED
+
+    private fun notifEnabled(): Boolean =
+        (Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: "").contains(packageName)
+
+    private fun paintPerms() {
+        status.text = "ccpanion · ${Rt.deviceId}\n" +
+            "Overlay: ${tick(Settings.canDrawOverlays(this))}   Meldingen: ${tick(notifEnabled())}\n" +
+            "SMS: ${tick(granted(Manifest.permission.READ_SMS))}   Contacten: ${tick(granted(Manifest.permission.READ_CONTACTS))}\n" +
+            "Versturen: ${tick(granted(Manifest.permission.SEND_SMS))}\n\n" +
+            "Elke knop opent de juiste instellingenpagina."
     }
 
-    private fun openNotifGrant(){
-        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+    private fun tick(b: Boolean) = if (b) "✓" else "✗"
+
+    private fun goOverlay() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+        }.onFailure {
+            runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+        }
     }
 
-    private fun registerDevice(){
+    private fun goNotif() {
+        runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
+            .onFailure { runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) } }
+    }
+
+    private fun goAppInfo() {
+        runCatching {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        }
+    }
+
+    private fun registerDevice() {
         val info = JSONObject()
             .put("model", Build.MODEL)
             .put("brand", Build.BRAND)

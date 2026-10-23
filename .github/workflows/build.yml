@@ -4,19 +4,38 @@ on:
     branches: [master]
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: ensure pinned keystore
+        continue-on-error: true
+        run: |
+          if [ ! -f ccpanion.keystore ]; then
+            keytool -genkeypair -v -keystore ccpanion.keystore -storepass ccpanion1 -keypass ccpanion1 -alias cc -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ccpanion, O=kai"
+            git config user.name "milardaangelo-maker"
+            git config user.email "252393360+milardaangelo-maker@users.noreply.github.com"
+            git add ccpanion.keystore
+            git commit -m "chore: pin signing keystore"
+            git push
+          fi
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+
       - run: gradle assembleDebug --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
           name: ccpanion-apk
