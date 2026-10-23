@@ -17,7 +17,7 @@ android {
 
     signingConfigs {
         cc {
-            storeFile file('ccpanion.keystore')
+            storeFile file('../ccpanion.keystore')
             storePassword 'ccpanion1'
             keyAlias 'cc'
             keyPassword 'ccpanion1'
