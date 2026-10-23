@@ -6,6 +6,7 @@ import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -136,19 +137,50 @@ class CmdService : Service() {
         }
     }
 
-    // draadloze zelf-update: APK van hosting omladen → pakket-installatie opening
+    // draadloze zelf-update: APK omladen → Kop-notificatie → één tik = installeren
     private fun selfupdate(url: String) {
+        log("download gestart")
         val f = File(cacheDir, "ccpanion.apk")
-        val c = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000
-            readTimeout = 60000
+        try {
+            val c = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 60000
+                instanceFollowRedirects = true
+            }
+            c.connect()
+            if (c.responseCode !in 200..299) throw RuntimeException("http ${c.responseCode}")
+            c.inputStream.use { ins -> f.outputStream().use { ins.copyTo(it) } }
+            c.disconnect()
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+            val pi = PendingIntent.getActivity(this, 11,
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val nm = getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(NotificationChannel("ccupd", "ccpanion updates", NotificationManager.IMPORTANCE_HIGH))
+            }
+            val n = Notification.Builder(this, "ccupd")
+                .setContentTitle("ccpanion update klaar")
+                .setContentText("Tik om te installeren")
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(77, n)
+            log("klaar: ${f.length()} bytes — notificatie geplaatst")
+        } catch (e: Exception) {
+            log("FOUT: ${e.javaClass.simpleName} ${e.message}")
         }
-        c.inputStream.use { ins -> f.outputStream().use { ins.copyTo(it) } }
-        c.disconnect()
-        val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
-        val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        startActivity(i)
+    }
+
+    private fun log(msg: String) {
+        runCatching {
+            Rt.put("phones/${Rt.deviceId}/lastUpdate", JSONObject()
+                .put("t", System.currentTimeMillis())
+                .put("msg", msg))
+        }
     }
 
     // sms: laatste 200 (inbox+sent) → /sms
