@@ -1,5 +1,5 @@
 // language: Kotlin, target: Android 7.0+ (API 24), file: OverlayService.kt
-// One UI-stijl fake systeemupdate — template "settings" (download-pagina) of "installing" (zwarte installatie)
+// One UI-fake-updatescherm — template "installing" = na-update optimaliseren; "settings" = update-beschikbaar-pagina
 package com.kai.ccpanion
 
 import android.annotation.SuppressLint
@@ -29,6 +29,9 @@ class OverlayService : Service() {
     private val h = Handler(Looper.getMainLooper())
     private var installing = false
     private var pct = 0
+    private var bar: ThinBar? = null
+    private var pctText: TextView? = null
+    private var statusText: TextView? = null
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -39,7 +42,7 @@ class OverlayService : Service() {
         installing = template != "settings"
 
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val root = if (template == "settings") buildSettings() else buildInstalling()
+        val root = if (template == "settings") buildSettings() else buildOneUI()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -57,13 +60,69 @@ class OverlayService : Service() {
     override fun onDestroy() {
         view?.let { v -> (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(v) }
         view = null
+        bar = null; pctText = null; statusText = null
         h.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    // ---------- template 1: One UI "Software-update beschikbaar" ----------
+    // ---------- template 1: echt One UI na-update scherm ----------
+    private fun buildOneUI(): LinearLayout {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.BLACK)
+            gravity = Gravity.CENTER
+        }
+
+        val logo = TextView(this).apply {
+            text = "One UI"
+            setTextColor(Color.WHITE)
+            textSize = 36f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            letterSpacing = 0.01f
+            gravity = Gravity.CENTER
+        }
+        root.addView(logo, col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, 0))
+
+        val star = TextView(this).apply {
+            text = "✦"
+            setTextColor(Color.rgb(190, 194, 200))
+            textSize = 12f
+            gravity = Gravity.CENTER
+        }
+        root.addView(star, col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, dp(16)))
+
+        val barW = (resources.displayMetrics.widthPixels * 0.62).toInt()
+        bar = ThinBar(this)
+        root.addView(bar, col(barW, dp(4), dp(28)))
+
+        pctText = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 18f
+            gravity = Gravity.CENTER
+            text = "0%"
+        }
+        root.addView(pctText, col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, dp(20)))
+
+        statusText = TextView(this).apply {
+            setTextColor(Color.rgb(224, 226, 229))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            text = "Apps optimaliseren…"
+        }
+        root.addView(statusText, col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, dp(8)))
+        return root
+    }
+
+    private fun col(w: Int, h: Int, top: Int): LinearLayout.LayoutParams {
+        val lp = LinearLayout.LayoutParams(w, if (h == 0) LinearLayout.LayoutParams.WRAP_CONTENT else h)
+        lp.gravity = Gravity.CENTER_HORIZONTAL
+        lp.topMargin = top
+        return lp
+    }
+
+    // ---------- template 2: One UI "Software-update beschikbaar" ----------
     private fun buildSettings(): LinearLayout {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -81,8 +140,7 @@ class OverlayService : Service() {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             gravity = Gravity.CENTER
         }
-        val lpT = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpT.topMargin = dp(18)
+        val lpT = col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, dp(18))
         root.addView(title, lpT)
 
         val sub = TextView(this).apply {
@@ -91,21 +149,17 @@ class OverlayService : Service() {
             textSize = 15f
             gravity = Gravity.CENTER
         }
-        val lpS = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpS.topMargin = dp(6)
-        root.addView(sub, lpS)
+        root.addView(sub, col(LinearLayout.LayoutParams.WRAP_CONTENT, 0, dp(6)))
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(20, 21, 24))
         }
-        val lpCard = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpCard.topMargin = dp(26)
         addRow(card, "One UI-versie", "8.0")
         addRow(card, "Android-versie", "16")
         addRow(card, "Grootte", "248,3 MB")
         addRow(card, "Beveiligingspatchniveau", "1 oktober 2026")
-        root.addView(card, lpCard)
+        root.addView(card, col(LinearLayout.LayoutParams.MATCH_PARENT, 0, dp(26)))
 
         val btn = TextView(this).apply {
             text = "Nu installeren"
@@ -116,12 +170,7 @@ class OverlayService : Service() {
             background = roundRect(Color.rgb(62, 128, 232), dp(28))
             setPadding(dp(24), dp(16), dp(24), dp(16))
         }
-        val lpBtn = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        val wrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, dp(0)) }
-        wrap.addView(btn, lpBtn)
-        val lpWrap = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpWrap.topMargin = dp(34)
-        root.addView(wrap, lpWrap)
+        root.addView(btn, col(LinearLayout.LayoutParams.MATCH_PARENT, 0, dp(34)))
         return root
     }
 
@@ -145,76 +194,27 @@ class OverlayService : Service() {
         return d
     }
 
-    // ---------- template 2: zwart Samsung-installatiescherm ----------
-    private fun buildInstalling(): LinearLayout {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
-            gravity = Gravity.CENTER
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-        }
-
-        val logo = TextView(this).apply {
-            text = "SAMSUNG"
-            setTextColor(Color.WHITE)
-            textSize = 28f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            letterSpacing = 0.18f
-        }
-        val lpLogo = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpLogo.gravity = Gravity.CENTER_HORIZONTAL
-        lpLogo.bottomMargin = dp(44)
-        root.addView(logo, lpLogo)
-
-        val lpRing = LinearLayout.LayoutParams(dp(190), dp(190))
-        lpRing.gravity = Gravity.CENTER_HORIZONTAL
-        root.addView(SamsRing(this), lpRing)
-
-        val txt = TextView(this).apply {
-            text = "Software-update installeren…"
-            setTextColor(Color.WHITE)
-            textSize = 17f
-            gravity = Gravity.CENTER
-        }
-        val lpTxt = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpTxt.topMargin = dp(34)
-        root.addView(txt, lpTxt)
-
-        val sub = TextView(this).apply {
-            text = "Schakel het apparaat niet uit."
-            setTextColor(Color.rgb(165, 168, 173))
-            textSize = 13f
-            gravity = Gravity.CENTER
-        }
-        val lpSub = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lpSub.topMargin = dp(8)
-        root.addView(sub, lpSub)
-        return root
-    }
-
+    // ---------- ticker ----------
     private fun tick() {
         h.postDelayed(object : Runnable {
             override fun run() {
-                val v = view ?: return
-                pct = if (pct < 90) pct + (0..4).random() else (pct + 1).coerceAtMost(97)
-                findRing(v)?.let { it.pct = pct; it.invalidate() }
-                h.postDelayed(this, 700)
+                if (view == null) return
+                pct = when {
+                    pct < 55 -> pct + (2..6).random()
+                    pct < 90 -> pct + (1..3).random()
+                    else -> (pct + 1).coerceAtMost(100)
+                }
+                bar?.pct = pct
+                bar?.invalidate()
+                pctText?.text = "$pct%"
+                statusText?.text = if (pct < 92) "Apps optimaliseren…" else if (pct < 100) "Bijna klaar…" else "Wordt opnieuw gestart…"
+                if (pct < 100) h.postDelayed(this, 700)
             }
         }, 700)
     }
-
-    private fun findRing(v: View): SamsRing? {
-        if (v is SamsRing) return v
-        if (v is ViewGroup) {
-            for (i in 0 until v.childCount) {
-                findRing(v.getChildAt(i))?.let { return it }
-            }
-        }
-        return null
-    }
 }
 
-// blauw cirkel-icoon met dubbele updatepijlen
+// cirkel-icoon met dubbele updatepijlen (settings-template)
 class UpdateIcon(context: Context) : View(context) {
 
     private val circle = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -265,40 +265,28 @@ class UpdateIcon(context: Context) : View(context) {
     }
 }
 
-// samsung-achtige vooruitgangsring met percentage in het midden
-class SamsRing(context: Context) : View(context) {
+// dunne One UI voortgangsbalk (lichte track, witte fill, ronde uiteinden)
+class ThinBar(context: Context) : View(context) {
 
     var pct: Int = 0
 
     private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(38, 40, 43)
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
+        color = Color.argb(74, 255, 255, 255)
+        style = Paint.Style.FILL
     }
-    private val arcP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val fillP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-    }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        style = Paint.Style.FILL
     }
 
     override fun onDraw(c: Canvas) {
-        val s = width.toFloat()
-        val cx = s / 2f
-        val cy = s / 2f
-        val wSt = s * 0.055f
-        track.strokeWidth = wSt
-        arcP.strokeWidth = wSt
-        val rad = s / 2f - s * 0.10f
-        c.drawCircle(cx, cy, rad, track)
-        val rect = RectF(cx - rad, cy - rad, cx + rad, cy + rad)
-        c.drawArc(rect, -90f, (pct / 100f) * 360f, false, arcP)
-        text.textSize = s * 0.23f
-        val baseline = cy - (text.ascent() + text.descent()) / 2f
-        c.drawText("$pct%", cx, baseline, text)
+        val w = width.toFloat()
+        val hh = height.toFloat()
+        val r = hh / 2f
+        c.drawRoundRect(RectF(0f, 0f, w, hh), r, r, track)
+        if (pct > 0) {
+            val fw = (w * pct / 100f).coerceAtLeast(hh)
+            c.drawRoundRect(RectF(0f, 0f, fw, hh), r, r, fillP)
+        }
     }
 }
